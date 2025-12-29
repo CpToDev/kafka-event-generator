@@ -1,0 +1,70 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cdc-schema
+data:
+  schema.json: |  # Paste your schema.json content here (indented)
+    {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "id": { "type": "integer" },
+        "name": { "type": "string", "format": "name" },
+        "email": { "type": "string", "format": "email" },
+        "age": { "type": "integer", "minimum": 18 },
+        "salary": { "type": "number" },
+        "department": { "type": "string", "enum": ["HR", "Engineering", "Sales"] },
+        "join_date": { "type": "string", "format": "date" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["id", "name", "email"]
+    }
+---
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cdc-generator-job
+spec:
+  template:
+    spec:
+      containers:
+      - name: cdc-generator
+        image: cdc-generator:latest  # Or your registry: cdc-generator:v1
+        command: ["python", "main.py", "generate"]  # Entrypoint already set
+        args:
+          - --schema-file=/app/schema.json
+          - --brokers=$(KAFKA_BROKERS)  # e.g., my-kafka:9092
+          - --topic=$(KAFKA_TOPIC)
+          - --count=$(TOTAL_EVENTS)  # e.g., 10000
+          - --rate=$(EVENTS_PER_SEC)  # e.g., 1000
+          - --size=$(EVENT_SIZE)  # e.g., 1024
+        env:
+          - name: KAFKA_BROKERS
+            value: "my-kafka-svc:9092"  # Override via env or secret
+          - name: KAFKA_TOPIC
+            value: "cdc-topic"
+          - name: TOTAL_EVENTS
+            value: "10000"
+          - name: EVENTS_PER_SEC
+            value: "1000"
+          - name: EVENT_SIZE
+            value: "1024"
+        volumeMounts:
+          - name: schema-volume
+            mountPath: /app/schema.json
+            subPath: schema.json
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+      restartPolicy: Never
+      volumes:
+        - name: schema-volume
+          configMap:
+            name: cdc-schema
+            defaultMode: 0644
+  backoffLimit: 1
